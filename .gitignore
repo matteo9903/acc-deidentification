@@ -1,3 +1,5 @@
 __pycache__/
 llama_deidentification/
+test/
+base64/
 .env

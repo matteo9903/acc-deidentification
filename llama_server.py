@@ -1,8 +1,4 @@
-import transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from fastapi import HTTPException
-import torch
-from torch.cuda.amp import autocast
 from dotenv import load_dotenv
 import os
 from fastapi import FastAPI
@@ -11,45 +7,36 @@ from pydantic import BaseModel
 import base64
 import fitz  # PyMuPDF
 import io
+from openai import OpenAI
+
+import pymupdf4llm
+
 
 # SYSTEM PROMPT
-from prompts import system_prompt
+from prompts import system_prompt, prompt_2
+from utilities import *
 
 
-model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-# number_gpus = 1
-# max_model_len = 8192
-# Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-# 8-bit quantization configuration
-quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-# Load the model in 8-bit mode
-model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    device_map="auto",  # Automatically use GPU if available
-    quantization_config=quantization_config
-)
 
 
-pipeline = transformers.pipeline(
-    "text-generation",
-    model=model,
-    tokenizer=tokenizer,
-    device_map='auto'
-)
 
 load_dotenv('.env')
-LLAMA_TOKEN = os.environ.get("LLAMA_TOKEN")
+LLM_TOKEN = os.environ.get("LLM_TOKEN")
 SERVER_IP = os.environ.get("SERVER_IP")
-PORT = int(os.environ.get("PORT"))
+PORT = int(os.environ.get("N_PORT"))
+
+client = OpenAI(
+  base_url="https://openrouter.ai/api/v1",
+  api_key=LLM_TOKEN,
+)
 
 
 app = FastAPI()
-print()
 
 class Message(BaseModel):
         text: str
         role: str
+        extension: str
 
 def bot_message(text: str):
     return { "role": "assistant", "content": text }
@@ -59,6 +46,25 @@ def user_message(text: str):
 
 def system_message(text: str):
     return { "role": "system", "content": text }
+
+model = "llama-70"
+# model = "llama-8"
+# model = "deepseek-v3"
+file_name = "ChatGPT1"
+
+# api_model = "deepseek/deepseek-chat:free"
+api_model = "meta-llama/llama-3.3-70b-instruct:free"
+# api_model = "meta-llama/llama-3.1-8b-instruct:free"
+
+def get_llm_answer(messages):
+    completion = client.chat.completions.create(
+    extra_body={},
+    model=api_model,
+    temperature=0,
+    messages = messages
+    )
+    
+    return completion.choices[0].message.content
 
 #######################
 #######  API  #########
@@ -70,72 +76,68 @@ def read_root():
     return {"message": "LLAMA server is working!", "code": 200 }
 
 @app.post("/answerMessage")
-def answer(message: Message):
+def answer_message(message: Message):
 
     messages = [
-        system_message(system_prompt)
+        system_message(system_prompt),
+        system_message(prompt_2)
     ]
     
-    # Check if GPU is available
-    if torch.cuda.is_available():
-        device = "cuda"  # Use the first GPU
-    else:
-        device = "cpu"   # Fall back to CPU
-    print(f"USING {device}\n---------------------\n")
-
-    base64_pdf = message.text
+    model_input = None
+    
+    if message.extension == 'pdf':
+        base64_pdf = message.text
+        try:
+            model_input = convert_pdf_to_text(base64_pdf)
+        except Exception as e:
+            print(f"Error while converting the PDF to text: {e}")
+            return {"error": f"Error while converting the PDF to text: {str(e)}", "code": 500}
+    elif message.extension == 'txt':
+        model_input = message.text
 
     # 2. Decode the Base64 string to get the PDF bytes
-    try:
-        pdf_bytes = base64.b64decode(base64_pdf)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid Base64 encoded PDF: {e}")
     
-    pdf_text = extract_pdf_text(pdf_bytes)
-
-    if pdf_text is None:
-        raise HTTPException(status_code=500, detail="Failed to extract text from PDF")
-    
-    print("PDF TEXT\n------------------------------\n\n-", pdf_text)
-
-    messages.append(user_message(pdf_text))
+    messages.append(user_message(model_input))
 
     try:
-        with autocast():
-            outputs = pipeline(
-            messages,
-            do_sample=True,
-            top_k=1,
-            top_p=0.9,
-            temperature=0.3,
-            num_return_sequences=1,
-            truncation=True,
-            max_length=8192,  # Increase max_length for longer outputs
-            max_new_tokens=2000
-            )
-                
-        response =  outputs[0]["generated_text"][-1]["content"]
-        print("response\n-----------------------\n",response, '\n------------------------')
-
-        return {"answer": response, "code": 200 }
+        llm_answer = get_llm_answer(messages)
+        
+        # os.makedirs(f"./test/{model}", exist_ok=True)  # Ensure the directory exists
+        # with open(f"./test/{model}/output_{file_name}.txt", "w", encoding='utf-8') as file:
+        #     file.write(llm_answer)
+            
+        return {"response": llm_answer, "code": 200}
     except Exception as e:
         print(f"Error while generating the response: {e}")
         return {"error": f"Error while generating the response: {str(e)}", "code": 500}
     
-#########################################
-##############  FUNCTIONS  ##############
-#########################################
-def extract_pdf_text(pdf_bytes):
+@app.post("/getPdfRegions")
+def get_pdf_regions(message: Message):
+    base64_string = message.text
+    
     try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")  # Open PDF from bytes
-        text = ""
-        for page in doc:
-            text += page.get_text()  # Extract text from each page
-        return text
+        new_base64 = find_pdf_regions(base64_string)
     except Exception as e:
-        print(f"Error extracting text: {e}")
-        return None
+        print(f"Error while finding PDF regions: {e}")
+        return {"error": f"Error while finding PDF regions: {str(e)}", "code": 500}
+    
+    return {"response": new_base64, "code": 200}
 
+
+@app.post("/getTextFromPdf")
+def answer_message(message: Message):
+    
+    if message.extension == 'pdf':
+        base64_pdf = message.text
+        try:
+            response = convert_pdf_to_text(base64_pdf)
+        except Exception as e:
+            print(f"Error while converting PDF to text: {e}")
+            return {"error": f"Error while converting PDF to text: {str(e)}", "code": 500}
+    
+        
+    return {"response": response, "code": 200}
+ 
 
 
 # Entry point for running the app
