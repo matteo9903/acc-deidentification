@@ -4,9 +4,9 @@ import os
 from fastapi import FastAPI
 import uvicorn
 from pydantic import BaseModel
-import base64
-import fitz  # PyMuPDF
-import io
+# import base64
+# import fitz  # PyMuPDF
+# import io
 from openai import OpenAI
 
 import pymupdf4llm
@@ -15,10 +15,6 @@ import pymupdf4llm
 # SYSTEM PROMPT
 from prompts import system_prompt, prompt_2
 from utilities import *
-
-
-
-
 
 load_dotenv('.env')
 LLM_TOKEN = os.environ.get("LLM_TOKEN")
@@ -50,7 +46,7 @@ def system_message(text: str):
 model = "llama-70"
 # model = "llama-8"
 # model = "deepseek-v3"
-file_name = "ChatGPT1"
+# file_name = "ChatGPT1"
 
 # api_model = "deepseek/deepseek-chat:free"
 api_model = "meta-llama/llama-3.3-70b-instruct:free"
@@ -100,12 +96,13 @@ def answer_message(message: Message):
     messages.append(user_message(model_input))
 
     try:
+        print("Getting LLM answer...")
         llm_answer = get_llm_answer(messages)
         
         # os.makedirs(f"./test/{model}", exist_ok=True)  # Ensure the directory exists
         # with open(f"./test/{model}/output_{file_name}.txt", "w", encoding='utf-8') as file:
         #     file.write(llm_answer)
-            
+        print("LLM answer correctly generated")
         return {"response": llm_answer, "code": 200}
     except Exception as e:
         print(f"Error while generating the response: {e}")
@@ -116,11 +113,13 @@ def get_pdf_regions(message: Message):
     base64_string = message.text
     
     try:
+        print("Identifyng PDF regions...")
         new_base64 = find_pdf_regions(base64_string)
     except Exception as e:
         print(f"Error while finding PDF regions: {e}")
         return {"error": f"Error while finding PDF regions: {str(e)}", "code": 500}
     
+    print("PDF regions correctly identified")
     return {"response": new_base64, "code": 200}
 
 
@@ -130,12 +129,13 @@ def answer_message(message: Message):
     if message.extension == 'pdf':
         base64_pdf = message.text
         try:
+            print("Converting PDF to text...")
             response = convert_pdf_to_text(base64_pdf)
         except Exception as e:
             print(f"Error while converting PDF to text: {e}")
             return {"error": f"Error while converting PDF to text: {str(e)}", "code": 500}
     
-        
+    print("PDF correctly converted to text")
     return {"response": response, "code": 200}
  
 

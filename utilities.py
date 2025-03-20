@@ -36,12 +36,11 @@ def convert_pdf_to_text(b64_code):
                 elif (y1-y0) <= page_height/10 and (y0 + y1) / 2 < page_height*0.15: # header
                     pass
                 else:
-                    doc_text += text
-    
-    print("----------------------------------")
-    print("DOC TEXT\n")
-    print(doc_text)
-    print("----------------------------------")
+                    doc_text += text 
+    # print("----------------------------------")
+    # print("DOC TEXT\n")
+    # print(doc_text)
+    # print("----------------------------------")
     return doc_text
 
 
