@@ -2,12 +2,10 @@ from fastapi import HTTPException
 from dotenv import load_dotenv
 import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
-# import base64
-# import fitz  # PyMuPDF
-# import io
-from openai import OpenAI
+import ollama
 
 import pymupdf4llm
 
@@ -21,13 +19,13 @@ LLM_TOKEN = os.environ.get("LLM_TOKEN")
 SERVER_IP = os.environ.get("SERVER_IP")
 PORT = int(os.environ.get("N_PORT"))
 
-client = OpenAI(
-  base_url="https://openrouter.ai/api/v1",
-  api_key=LLM_TOKEN,
-)
-
-
 app = FastAPI()
+
+ 
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_credentials=True,
+                   allow_methods=["*"],
+                   allow_headers=["*"],)
 
 class Message(BaseModel):
         text: str
@@ -43,24 +41,17 @@ def user_message(text: str):
 def system_message(text: str):
     return { "role": "system", "content": text }
 
-model = "llama-70"
-# model = "llama-8"
-# model = "deepseek-v3"
-# file_name = "ChatGPT1"
-
-# api_model = "deepseek/deepseek-chat:free"
-api_model = "meta-llama/llama-3.3-70b-instruct:free"
-# api_model = "meta-llama/llama-3.1-8b-instruct:free"
-
 def get_llm_answer(messages):
-    completion = client.chat.completions.create(
-    extra_body={},
-    model=api_model,
-    temperature=0,
-    messages = messages
+    model = "llama3.3:70b-instruct-q6_K"
+    response = ollama.chat(
+        model = model,
+        messages = messages,
+        options={
+            "temperature": 0
+        }
     )
     
-    return completion.choices[0].message.content
+    return response['message']['content']
 
 #######################
 #######  API  #########
@@ -98,10 +89,6 @@ def answer_message(message: Message):
     try:
         print("Getting LLM answer...")
         llm_answer = get_llm_answer(messages)
-        
-        # os.makedirs(f"./test/{model}", exist_ok=True)  # Ensure the directory exists
-        # with open(f"./test/{model}/output_{file_name}.txt", "w", encoding='utf-8') as file:
-        #     file.write(llm_answer)
         print("LLM answer correctly generated")
         return {"response": llm_answer, "code": 200}
     except Exception as e:
@@ -142,4 +129,4 @@ def answer_message(message: Message):
 
 # Entry point for running the app
 if __name__ == '__main__':
-    uvicorn.run(app, host=SERVER_IP, port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=3000)
